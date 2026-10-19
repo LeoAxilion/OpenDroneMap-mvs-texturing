@@ -27,6 +27,7 @@ struct Arguments {
     bool write_timings;
     bool write_intermediate_results;
     bool write_view_selection_model;
+    bool view_selection_only;
 
     int num_threads;
 

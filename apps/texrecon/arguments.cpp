@@ -14,6 +14,7 @@
 #define SKIP_GEOMETRIC_VISIBILITY_TEST "skip_geometric_visibility_test"
 #define SKIP_LOCAL_SEAM_LEVELING "skip_local_seam_leveling"
 #define NO_INTERMEDIATE_RESULTS "no_intermediate_results"
+#define VIEW_SELECTION_ONLY "view_selection_only"
 #define WRITE_TIMINGS "write_timings"
 #define SKIP_HOLE_FILLING "skip_hole_filling"
 #define KEEP_UNSEEN_FACES "keep_unseen_faces"
@@ -93,6 +94,8 @@ Arguments parse_args(int argc, char **argv) {
         "Write out timings for each algorithm step (OUT_PREFIX + _timings.csv)");
     args.add_option('\0', NO_INTERMEDIATE_RESULTS, false,
         "Do not write out intermediate results");
+    args.add_option('\0', VIEW_SELECTION_ONLY, false,
+        "Write the per-face view labeling and stop before texture generation");
     args.add_option('\0', NUM_THREADS, true,
         "How many threads to use. Set 1 for determinism.");
     args.parse(argc, argv);
@@ -109,6 +112,7 @@ Arguments parse_args(int argc, char **argv) {
     conf.write_timings = false;
     conf.write_intermediate_results = true;
     conf.write_view_selection_model = false;
+    conf.view_selection_only = false;
 
     conf.num_threads = -1;
 
@@ -157,6 +161,8 @@ Arguments parse_args(int argc, char **argv) {
                 conf.write_timings = true;
             } else if (i->opt->lopt == NO_INTERMEDIATE_RESULTS) {
                 conf.write_intermediate_results = false;
+            } else if (i->opt->lopt == VIEW_SELECTION_ONLY) {
+                conf.view_selection_only = true;
             } else if (i->opt->lopt == NUM_THREADS) {
                 conf.num_threads = std::stoi(i->arg);
             } else {
@@ -189,7 +195,8 @@ Arguments::to_string(){
         << "Outlier removal method: \t" << choice_string<tex::OutlierRemoval>(settings.outlier_removal) << std::endl
         << "Tone mapping: \t" << choice_string<tex::ToneMapping>(settings.tone_mapping) << std::endl
         << "Apply global seam leveling: \t" << bool_to_string(settings.global_seam_leveling) << std::endl
-        << "Apply local seam leveling: \t" << bool_to_string(settings.local_seam_leveling) << std::endl;
+        << "Apply local seam leveling: \t" << bool_to_string(settings.local_seam_leveling) << std::endl
+        << "View selection only: \t" << bool_to_string(view_selection_only) << std::endl;
 
     return out.str();
 }

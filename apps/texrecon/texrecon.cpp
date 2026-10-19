@@ -10,8 +10,9 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include <tbb/task_scheduler_init.h>
+#include <oneapi/tbb/global_control.h>
 #include <omp.h>
+#include <memory>
 
 #include <util/timer.h>
 #include <util/system.h>
@@ -40,6 +41,10 @@ int main(int argc, char **argv) {
         std::cerr << ia.what() << std::endl;
         std::exit(EXIT_FAILURE);
     }
+    if (conf.view_selection_only && !conf.labeling_file.empty()) {
+        std::cerr << "--view_selection_only cannot be combined with --labeling_file" << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
 
     std::string const out_dir = util::fs::dirname(conf.out_prefix);
 
@@ -60,7 +65,12 @@ int main(int argc, char **argv) {
     }
 
     // Set the number of threads to use.
-    tbb::task_scheduler_init schedule(conf.num_threads > 0 ? conf.num_threads : tbb::task_scheduler_init::automatic);
+    std::unique_ptr<oneapi::tbb::global_control> schedule;
+    if (conf.num_threads > 0) {
+        schedule.reset(new oneapi::tbb::global_control(
+            oneapi::tbb::global_control::max_allowed_parallelism,
+            static_cast<std::size_t>(conf.num_threads)));
+    }
     if (conf.num_threads > 0) {
         omp_set_dynamic(0);
         omp_set_num_threads(conf.num_threads);
@@ -126,7 +136,7 @@ int main(int argc, char **argv) {
         std::cout << "\tTook: " << rwtimer.get_elapsed_sec() << "s" << std::endl;
 
         /* Write labeling to file. */
-        if (conf.write_intermediate_results) {
+        if (conf.write_intermediate_results || conf.view_selection_only) {
             std::vector<std::size_t> labeling(graph.num_nodes());
             for (std::size_t i = 0; i < graph.num_nodes(); ++i) {
                 labeling[i] = graph.get_label(i);
@@ -154,6 +164,16 @@ int main(int argc, char **argv) {
         }
 
         std::cout << "done." << std::endl;
+    }
+
+    if (conf.view_selection_only) {
+        for (util::fs::File const & file : util::fs::Directory(tmp_dir)) {
+            util::fs::unlink(util::fs::join_path(file.path, file.name).c_str());
+        }
+        util::fs::rmdir(tmp_dir.c_str());
+        std::cout << "View selection labels written to "
+            << conf.out_prefix << "_labeling.vec; texture generation skipped." << std::endl;
+        return EXIT_SUCCESS;
     }
 
     tex::TextureAtlases texture_atlases;

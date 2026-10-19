@@ -1,7 +1,5 @@
 cmake_minimum_required(VERSION 3.1)
 
-LIST(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/elibs/tbb")
-
 project(Texturing)
 include(ExternalProject)
 
@@ -10,11 +8,9 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RELWITHDEBINFO)
 endif()
 
-#Search for TBB library (release build)
-set(CMAKE_BUILD_TYPE_BACKUP ${CMAKE_BUILD_TYPE})
-set(CMAKE_BUILD_TYPE RELEASE)
-FIND_PACKAGE(TBB REQUIRED)
-set(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE_BACKUP})
+# Use the installed oneTBB package. The bundled FindTBB module targets the
+# removed tbb_stddef.h/task_scheduler_init.h interfaces.
+find_package(TBB CONFIG REQUIRED COMPONENTS tbb)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED yes)
