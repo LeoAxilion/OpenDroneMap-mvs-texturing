@@ -8,6 +8,10 @@
  */
 
 #include <numeric>
+#include <dirent.h>
+#include <fstream>
+#include <iomanip>
+#include <cmath>
 
 #include <mve/image_color.h>
 #include <acc/bvh_tree.h>
@@ -23,6 +27,79 @@
 typedef acc::BVHTree<unsigned int, math::Vec3f> BVHTree;
 
 TEX_NAMESPACE_BEGIN
+
+struct CandidateDepthMap {
+    int width = 0;
+    int height = 0;
+    std::vector<float> values;
+
+    CandidateDepthMap(std::string const & root, std::size_t view_id) {
+        std::ostringstream key;
+        key << std::setw(8) << std::setfill('0') << view_id;
+        std::string found;
+        DIR * dir = opendir(root.c_str());
+        if (!dir) throw std::runtime_error("Cannot open depth map directory: " + root);
+        while (dirent * entry = readdir(dir)) {
+            std::string const name = entry->d_name;
+            if (name.size() < 8 || name.substr(name.size() - 8) != key.str()) continue;
+            if (!found.empty()) {
+                closedir(dir);
+                throw std::runtime_error("Ambiguous depth map for view " + key.str());
+            }
+            found = root + "/" + name + "/depths.dmb";
+        }
+        closedir(dir);
+        if (found.empty()) throw std::runtime_error("No depth map for view " + key.str());
+        std::ifstream in(found, std::ios::binary);
+        int32_t header[4] = {};
+        in.read(reinterpret_cast<char *>(header), sizeof(header));
+        if (!in || header[0] != 1 || header[1] <= 0 || header[2] <= 0 ||
+            (header[3] != 1 && header[3] != 5))
+            throw std::runtime_error("Invalid DMB depth header: " + found);
+        height = header[1]; width = header[2];
+        values.resize(static_cast<std::size_t>(width) * height);
+        in.read(reinterpret_cast<char *>(values.data()), values.size() * sizeof(float));
+        if (!in) throw std::runtime_error("Truncated DMB depth data: " + found);
+    }
+
+    bool consistent(TextureView const & view, math::Vec3f const & vertex, float gsd,
+                    float relative_tolerance) const {
+        float const z = view.get_camera_depth(vertex);
+        math::Vec2f const p = view.get_pixel_coords(vertex);
+        // TextureView uses pixel-corner coordinates (subtracting 0.5 after
+        // projection); mesh2orthomatic uses K-scaled pixel-center coordinates.
+        float const x = (p[0] + 0.5f) * width / view.get_width();
+        float const y = (p[1] + 0.5f) * height / view.get_height();
+        if (!std::isfinite(z) || z <= 1e-5f || !std::isfinite(x) || !std::isfinite(y) ||
+            x < 0 || y < 0 || x >= width - 1 || y >= height - 1) return false;
+        int const ix = std::lround(x), iy = std::lround(y);
+        float const observed = values[static_cast<std::size_t>(iy) * width + ix];
+        float const tolerance = std::max(4.0f * gsd,
+            relative_tolerance * std::max(std::abs(z), std::abs(observed)));
+        return std::isfinite(observed) && observed > 0 &&
+            std::abs(z - observed) <= tolerance;
+    }
+
+    bool backprojection_3d_consistent(TextureView const & view,
+        math::Vec3f const & vertex, Settings const & settings) const {
+        math::Vec2f const p = view.get_pixel_coords(vertex);
+        float const x = (p[0] + 0.5f) * width / view.get_width();
+        float const y = (p[1] + 0.5f) * height / view.get_height();
+        if (!std::isfinite(x) || !std::isfinite(y) || x < 0 || y < 0 ||
+            x >= width - 1 || y >= height - 1) return false;
+        int const ix = std::lround(x), iy = std::lround(y);
+        if (ix < 0 || iy < 0 || ix >= width || iy >= height) return false;
+        float const observed = values[static_cast<std::size_t>(iy) * width + ix];
+        if (!std::isfinite(observed) || observed <= 0.0f) return false;
+
+        math::Vec3f const backprojected = view.backproject_depth_pixel(
+            ix, iy, width, height, observed);
+        math::Vec3f const delta = backprojected - vertex;
+        float const distance_gsd = delta.norm() / settings.depth_gsd;
+        return std::isfinite(distance_gsd) &&
+            distance_gsd <= settings.depth_3d_backprojection_max_error_gsd;
+    }
+};
 
 /**
  * Dampens the quality of all views in which the face's projection
@@ -154,6 +231,7 @@ calculate_face_projection_infos(mve::TriangleMesh::ConstPtr mesh,
             view_counter.progress<SIMPLE>();
 
             TextureView * texture_view = &texture_views->at(j);
+            std::unique_ptr<CandidateDepthMap> candidate_depth;
             texture_view->load_image();
             if (texture_view->get_image()->get_type() == mve::IMAGE_TYPE_FLOAT){
                texture_view->generate_validity_mask<float>();
@@ -211,6 +289,21 @@ calculate_face_projection_infos(mve::TriangleMesh::ConstPtr mesh,
 
                 /* Projects into the valid part of the TextureView? */
                 if (!texture_view->inside(v1, v2, v3))
+                    continue;
+
+                if (!settings.depth_map_dir.empty() &&
+                    (settings.depth_consistency_test || settings.depth_3d_backprojection_test) &&
+                    !candidate_depth)
+                    candidate_depth.reset(new CandidateDepthMap(settings.depth_map_dir, j));
+                if (candidate_depth && settings.depth_consistency_test &&
+                    !(candidate_depth->consistent(*texture_view, v1, settings.depth_gsd, settings.depth_consistency_rel_tolerance) &&
+                      candidate_depth->consistent(*texture_view, v2, settings.depth_gsd, settings.depth_consistency_rel_tolerance) &&
+                      candidate_depth->consistent(*texture_view, v3, settings.depth_gsd, settings.depth_consistency_rel_tolerance)))
+                    continue;
+                if (candidate_depth && settings.depth_3d_backprojection_test &&
+                    !(candidate_depth->backprojection_3d_consistent(*texture_view, v1, settings) &&
+                      candidate_depth->backprojection_3d_consistent(*texture_view, v2, settings) &&
+                      candidate_depth->backprojection_3d_consistent(*texture_view, v3, settings)))
                     continue;
 
                 if (!vertical && settings.geometric_visibility_test) {

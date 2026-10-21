@@ -21,6 +21,12 @@
 #define NADIR_MODE    "nadir_mode"
 #define NADIR_WEIGHT    "nadir_weight"
 #define NUM_THREADS "num_threads"
+#define DEPTH_MAP_DIR "depth_map_dir"
+#define DEPTH_CONSISTENCY_TEST "depth_consistency_test"
+#define DEPTH_GSD "depth_gsd"
+#define DEPTH_CONSISTENCY_REL_TOLERANCE "depth_consistency_rel_tolerance"
+#define DEPTH_3D_BACKPROJECTION_TEST "depth_3d_backprojection_test"
+#define DEPTH_3D_BACKPROJECTION_MAX_ERROR_GSD "depth_3d_backprojection_max_error_gsd"
 
 Arguments parse_args(int argc, char **argv) {
     util::Arguments args;
@@ -98,6 +104,18 @@ Arguments parse_args(int argc, char **argv) {
         "Write the per-face view labeling and stop before texture generation");
     args.add_option('\0', NUM_THREADS, true,
         "How many threads to use. Set 1 for determinism.");
+    args.add_option('\0', DEPTH_MAP_DIR, true,
+        "Filter candidate face views using matching HPM/DPE depth maps");
+    args.add_option('\0', DEPTH_CONSISTENCY_TEST, false,
+        "Enable candidate camera-Z depth consistency filtering [false]");
+    args.add_option('\0', DEPTH_GSD, true,
+        "DSM grid spacing in scene units per pixel, shared by depth filters");
+    args.add_option('\0', DEPTH_CONSISTENCY_REL_TOLERANCE, true,
+        "Relative depth consistency tolerance (default: 0.10 = 10 percent)");
+    args.add_option('\0', DEPTH_3D_BACKPROJECTION_TEST, false,
+        "Filter candidate face views by 3D depth back-projection distance at all three vertices [false]");
+    args.add_option('\0', DEPTH_3D_BACKPROJECTION_MAX_ERROR_GSD, true,
+        "Maximum 3D back-projection distance in GSD units [1]");
     args.parse(argc, argv);
 
     Arguments conf;
@@ -165,6 +183,18 @@ Arguments parse_args(int argc, char **argv) {
                 conf.view_selection_only = true;
             } else if (i->opt->lopt == NUM_THREADS) {
                 conf.num_threads = std::stoi(i->arg);
+            } else if (i->opt->lopt == DEPTH_MAP_DIR) {
+                conf.settings.depth_map_dir = i->arg;
+            } else if (i->opt->lopt == DEPTH_CONSISTENCY_TEST) {
+                conf.settings.depth_consistency_test = true;
+            } else if (i->opt->lopt == DEPTH_GSD) {
+                conf.settings.depth_gsd = std::stof(i->arg);
+            } else if (i->opt->lopt == DEPTH_CONSISTENCY_REL_TOLERANCE) {
+                conf.settings.depth_consistency_rel_tolerance = std::stof(i->arg);
+            } else if (i->opt->lopt == DEPTH_3D_BACKPROJECTION_TEST) {
+                conf.settings.depth_3d_backprojection_test = true;
+            } else if (i->opt->lopt == DEPTH_3D_BACKPROJECTION_MAX_ERROR_GSD) {
+                conf.settings.depth_3d_backprojection_max_error_gsd = std::stof(i->arg);
             } else {
                 throw std::invalid_argument("Invalid long option");
             }
@@ -172,6 +202,20 @@ Arguments parse_args(int argc, char **argv) {
         default:
             throw std::invalid_argument("Invalid short option");
         }
+    }
+
+    if (conf.settings.depth_consistency_test && conf.settings.depth_map_dir.empty())
+        throw std::invalid_argument("--depth_consistency_test requires --depth_map_dir");
+    if ((conf.settings.depth_consistency_test || conf.settings.depth_3d_backprojection_test) &&
+        conf.settings.depth_gsd <= 0.0f)
+        throw std::invalid_argument("--depth_gsd must be positive when a depth filter is enabled");
+    if (conf.settings.depth_consistency_rel_tolerance < 0.0f)
+        throw std::invalid_argument("--depth_consistency_rel_tolerance must be non-negative");
+    if (conf.settings.depth_3d_backprojection_test) {
+        if (conf.settings.depth_map_dir.empty())
+            throw std::invalid_argument("--depth_3d_backprojection_test requires --depth_map_dir");
+        if (conf.settings.depth_3d_backprojection_max_error_gsd < 0.0f)
+            throw std::invalid_argument("--depth_3d_backprojection_max_error_gsd must be non-negative");
     }
 
     return conf;
@@ -194,6 +238,13 @@ Arguments::to_string(){
         << "Smoothness term: \t" << choice_string<tex::SmoothnessTerm>(settings.smoothness_term) << std::endl
         << "Outlier removal method: \t" << choice_string<tex::OutlierRemoval>(settings.outlier_removal) << std::endl
         << "Tone mapping: \t" << choice_string<tex::ToneMapping>(settings.tone_mapping) << std::endl
+        << "Depth map directory: \t" << settings.depth_map_dir << std::endl
+        << "Depth consistency test: \t" << bool_to_string(settings.depth_consistency_test) << std::endl
+        << "Depth GSD (scene units/DSM px): \t" << settings.depth_gsd << std::endl
+        << "Depth consistency relative tolerance: \t" << settings.depth_consistency_rel_tolerance << std::endl
+        << "Depth 3D back-projection test: \t" << bool_to_string(settings.depth_3d_backprojection_test) << std::endl
+        << "Depth 3D back-projection maximum distance (GSD): \t"
+        << settings.depth_3d_backprojection_max_error_gsd << std::endl
         << "Apply global seam leveling: \t" << bool_to_string(settings.global_seam_leveling) << std::endl
         << "Apply local seam leveling: \t" << bool_to_string(settings.local_seam_leveling) << std::endl
         << "View selection only: \t" << bool_to_string(view_selection_only) << std::endl;

@@ -93,8 +93,14 @@ struct Settings {
     bool hole_filling = true;
     bool keep_unseen_faces = false;
     bool nadir_mode = false;
+    bool depth_consistency_test = false;
+    bool depth_3d_backprojection_test = false;
 
     float nadir_weight = 65535.0f;
+    std::string depth_map_dir;
+    float depth_gsd = 0.0f;
+    float depth_consistency_rel_tolerance = 0.10f;
+    float depth_3d_backprojection_max_error_gsd = 1.0f;
 };
 
 TEX_NAMESPACE_END

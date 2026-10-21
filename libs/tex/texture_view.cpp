@@ -30,9 +30,11 @@ TextureView::TextureView(std::size_t id, mve::CameraInfo const & camera,
     height = header.height;
 
     camera.fill_calibration(*projection, width, height);
+    camera.fill_inverse_calibration(*inverse_projection, width, height);
     camera.fill_camera_pos(*pos);
     camera.fill_viewing_direction(*viewdir);
     camera.fill_world_to_cam(*world_to_cam);
+    camera.fill_cam_to_world(*cam_to_world);
 }
 
 void

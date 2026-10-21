@@ -46,7 +46,9 @@ class TextureView {
         math::Vec3f pos;
         math::Vec3f viewdir;
         math::Matrix3f projection;
+        math::Matrix3f inverse_projection;
         math::Matrix4f world_to_cam;
+        math::Matrix4f cam_to_world;
         int width;
         int height;
         std::string image_file;
@@ -61,6 +63,11 @@ class TextureView {
 
         /** Returns the 2D pixel coordinates of the given vertex projected into the view. */
         math::Vec2f get_pixel_coords(math::Vec3f const & vertex) const;
+        float get_camera_depth(math::Vec3f const & vertex) const {
+            return world_to_cam.mult(vertex, 1.0f)[2];
+        }
+        math::Vec3f backproject_depth_pixel(int x, int y, int depth_width,
+            int depth_height, float depth) const;
         /** Returns the RGB pixel values [0, 1] for the given vertex projected into the view, calculated by linear interpolation. */
 //        math::Vec3f get_pixel_values(math::Vec3f const & vertex) const;
 
@@ -197,6 +204,19 @@ TextureView::get_pixel_coords(math::Vec3f const & vertex) const {
     math::Vec3f pixel = projection * world_to_cam.mult(vertex, 1.0f);
     pixel /= pixel[2];
     return math::Vec2f(pixel[0] - 0.5f, pixel[1] - 0.5f);
+}
+
+inline math::Vec3f
+TextureView::backproject_depth_pixel(int x, int y, int depth_width,
+    int depth_height, float depth) const {
+    /* MVE's inverse calibration expects pixel-center coordinates, i.e. the
+     * projected pixel coordinate with 0.5 added back. Scale the DMB pixel
+     * center into the source image's calibration domain. */
+    float const px = (static_cast<float>(x) + 0.5f) * width / depth_width;
+    float const py = (static_cast<float>(y) + 0.5f) * height / depth_height;
+    math::Vec3f camera_point = inverse_projection * math::Vec3f(px, py, 1.0f);
+    camera_point *= depth;
+    return cam_to_world.mult(camera_point, 1.0f);
 }
 
 //inline math::Vec3f
