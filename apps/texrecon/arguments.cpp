@@ -14,7 +14,6 @@
 #define SKIP_GEOMETRIC_VISIBILITY_TEST "skip_geometric_visibility_test"
 #define SKIP_LOCAL_SEAM_LEVELING "skip_local_seam_leveling"
 #define NO_INTERMEDIATE_RESULTS "no_intermediate_results"
-#define VIEW_SELECTION_ONLY "view_selection_only"
 #define RAY_VISIBILITY_FILE "ray_visibility_file"
 #define WRITE_TIMINGS "write_timings"
 #define SKIP_HOLE_FILLING "skip_hole_filling"
@@ -63,8 +62,6 @@ Arguments parse_args(int argc, char **argv) {
         "\n");
     args.add_option('D',"data_cost_file", true,
         "Skip calculation of data costs and use the ones provided in the given file");
-    args.add_option('L',"labeling_file", true,
-        "Skip view selection and use the labeling provided in the given file");
     args.add_option('d',"data_term", true,
         "Data term: {" +
         choices<tex::DataTerm>() + "} [" +
@@ -101,8 +98,6 @@ Arguments parse_args(int argc, char **argv) {
         "Write out timings for each algorithm step (OUT_PREFIX + _timings.csv)");
     args.add_option('\0', NO_INTERMEDIATE_RESULTS, false,
         "Do not write out intermediate results");
-    args.add_option('\0', VIEW_SELECTION_ONLY, false,
-        "Write the per-face view labeling and stop before texture generation");
     args.add_option('\0', RAY_VISIBILITY_FILE, true,
         "Export per-face candidate visibility from TexRecon's BVH ray test and stop; output path is binary");
     args.add_option('\0', NUM_THREADS, true,
@@ -128,13 +123,11 @@ Arguments parse_args(int argc, char **argv) {
 
     /* Set defaults for optional arguments. */
     conf.data_cost_file = "";
-    conf.labeling_file = "";
     conf.ray_visibility_file = "";
 
     conf.write_timings = false;
     conf.write_intermediate_results = true;
     conf.write_view_selection_model = false;
-    conf.view_selection_only = false;
 
     conf.num_threads = -1;
 
@@ -147,9 +140,6 @@ Arguments parse_args(int argc, char **argv) {
         break;
         case 'D':
             conf.data_cost_file = i->arg;
-        break;
-        case 'L':
-            conf.labeling_file = i->arg;
         break;
         case 'd':
             conf.settings.data_term = parse_choice<tex::DataTerm>(i->arg);
@@ -183,8 +173,6 @@ Arguments parse_args(int argc, char **argv) {
                 conf.write_timings = true;
             } else if (i->opt->lopt == NO_INTERMEDIATE_RESULTS) {
                 conf.write_intermediate_results = false;
-            } else if (i->opt->lopt == VIEW_SELECTION_ONLY) {
-                conf.view_selection_only = true;
             } else if (i->opt->lopt == RAY_VISIBILITY_FILE) {
                 conf.ray_visibility_file = i->arg;
             } else if (i->opt->lopt == NUM_THREADS) {
@@ -225,9 +213,6 @@ Arguments parse_args(int argc, char **argv) {
     }
     if (!conf.ray_visibility_file.empty() && !conf.settings.geometric_visibility_test)
         throw std::invalid_argument("--ray_visibility_file requires the geometric visibility test; do not pass --skip_geometric_visibility_test");
-    if (!conf.ray_visibility_file.empty() && conf.view_selection_only)
-        throw std::invalid_argument("--ray_visibility_file cannot be combined with --view_selection_only");
-
     return conf;
 }
 
@@ -243,7 +228,6 @@ Arguments::to_string(){
         << "Input mesh: \t" << in_mesh << std::endl
         << "Output prefix: \t" << out_prefix << std::endl
         << "Datacost file: \t" << data_cost_file << std::endl
-        << "Labeling file: \t" << labeling_file << std::endl
         << "Ray visibility file: \t" << ray_visibility_file << std::endl
         << "Data term: \t" << choice_string<tex::DataTerm>(settings.data_term) << std::endl
         << "Smoothness term: \t" << choice_string<tex::SmoothnessTerm>(settings.smoothness_term) << std::endl
@@ -257,8 +241,7 @@ Arguments::to_string(){
         << "Depth 3D back-projection maximum distance (GSD): \t"
         << settings.depth_3d_backprojection_max_error_gsd << std::endl
         << "Apply global seam leveling: \t" << bool_to_string(settings.global_seam_leveling) << std::endl
-        << "Apply local seam leveling: \t" << bool_to_string(settings.local_seam_leveling) << std::endl
-        << "View selection only: \t" << bool_to_string(view_selection_only) << std::endl;
+        << "Apply local seam leveling: \t" << bool_to_string(settings.local_seam_leveling) << std::endl;
 
     return out.str();
 }

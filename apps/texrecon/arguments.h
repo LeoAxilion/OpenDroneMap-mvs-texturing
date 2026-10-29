@@ -20,7 +20,6 @@ struct Arguments {
     std::string out_prefix;
 
     std::string data_cost_file;
-    std::string labeling_file;
     std::string ray_visibility_file;
 
     tex::Settings settings;
@@ -28,8 +27,6 @@ struct Arguments {
     bool write_timings;
     bool write_intermediate_results;
     bool write_view_selection_model;
-    bool view_selection_only;
-
     int num_threads;
 
     /** Returns a muliline string of the current arguments. */

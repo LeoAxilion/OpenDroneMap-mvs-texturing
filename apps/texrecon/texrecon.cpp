@@ -41,11 +41,6 @@ int main(int argc, char **argv) {
         std::cerr << ia.what() << std::endl;
         std::exit(EXIT_FAILURE);
     }
-    if (conf.view_selection_only && !conf.labeling_file.empty()) {
-        std::cerr << "--view_selection_only cannot be combined with --labeling_file" << std::endl;
-        std::exit(EXIT_FAILURE);
-    }
-
     std::string const out_dir = util::fs::dirname(conf.out_prefix);
 
     if (!util::fs::dir_exists(out_dir.c_str())) {
@@ -135,80 +130,47 @@ int main(int argc, char **argv) {
     tex::Graph graph(num_faces);
     tex::build_adjacency_graph(mesh, mesh_info, &graph);
 
-    if (conf.labeling_file.empty()) {
-        std::cout << "View selection:" << std::endl;
-        util::WallTimer rwtimer;
+    std::cout << "View selection:" << std::endl;
+    util::WallTimer rwtimer;
 
-        tex::DataCosts data_costs(num_faces, texture_views.size());
-        if (conf.data_cost_file.empty()) {
-            tex::calculate_data_costs(mesh, &texture_views, conf.settings, &data_costs);
+    tex::DataCosts data_costs(num_faces, texture_views.size());
+    if (conf.data_cost_file.empty()) {
+        tex::calculate_data_costs(mesh, &texture_views, conf.settings, &data_costs);
 
-            if (conf.write_intermediate_results) {
-                std::cout << "\tWriting data cost file... " << std::flush;
-                tex::DataCosts::save_to_file(data_costs, conf.out_prefix + "_data_costs.spt");
-                std::cout << "done." << std::endl;
-            }
-        } else {
-            std::cout << "\tLoading data cost file... " << std::flush;
-            try {
-                tex::DataCosts::load_from_file(conf.data_cost_file, &data_costs);
-            } catch (util::FileException e) {
-                std::cout << "failed!" << std::endl;
-                std::cerr << e.what() << std::endl;
-                std::exit(EXIT_FAILURE);
-            }
+        if (conf.write_intermediate_results) {
+            std::cout << "\tWriting data cost file... " << std::flush;
+            tex::DataCosts::save_to_file(data_costs, conf.out_prefix + "_data_costs.spt");
             std::cout << "done." << std::endl;
         }
-        timer.measure("Calculating data costs");
-
-        try {
-            tex::view_selection(data_costs, &graph, conf.settings);
-        } catch (std::runtime_error& e) {
-            std::cerr << "\tOptimization failed: " << e.what() << std::endl;
-            std::exit(EXIT_FAILURE);
-        }
-        timer.measure("Running MRF optimization");
-        std::cout << "\tTook: " << rwtimer.get_elapsed_sec() << "s" << std::endl;
-
-        /* Write labeling to file. */
-        if (conf.write_intermediate_results || conf.view_selection_only) {
-            std::vector<std::size_t> labeling(graph.num_nodes());
-            for (std::size_t i = 0; i < graph.num_nodes(); ++i) {
-                labeling[i] = graph.get_label(i);
-            }
-            vector_to_file(conf.out_prefix + "_labeling.vec", labeling);
-        }
     } else {
-        std::cout << "Loading labeling from file... " << std::flush;
-
-        /* Load labeling from file. */
-        std::vector<std::size_t> labeling = vector_from_file<std::size_t>(conf.labeling_file);
-        if (labeling.size() != graph.num_nodes()) {
-            std::cerr << "Wrong labeling file for this mesh/scene combination... aborting!" << std::endl;
+        std::cout << "\tLoading data cost file... " << std::flush;
+        try {
+            tex::DataCosts::load_from_file(conf.data_cost_file, &data_costs);
+        } catch (util::FileException e) {
+            std::cout << "failed!" << std::endl;
+            std::cerr << e.what() << std::endl;
             std::exit(EXIT_FAILURE);
         }
-
-        /* Transfer labeling to graph. */
-        for (std::size_t i = 0; i < labeling.size(); ++i) {
-            const std::size_t label = labeling[i];
-            if (label > texture_views.size()){
-                std::cerr << "Wrong labeling file for this mesh/scene combination... aborting!" << std::endl;
-                std::exit(EXIT_FAILURE);
-            }
-            graph.set_label(i, label);
-        }
-
         std::cout << "done." << std::endl;
     }
+    timer.measure("Calculating data costs");
 
-    if (conf.view_selection_only) {
-        for (util::fs::File const & file : util::fs::Directory(tmp_dir)) {
-            util::fs::unlink(util::fs::join_path(file.path, file.name).c_str());
+    try {
+        tex::view_selection(data_costs, &graph, conf.settings);
+    } catch (std::runtime_error& e) {
+        std::cerr << "\tOptimization failed: " << e.what() << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+    timer.measure("Running MRF optimization");
+    std::cout << "\tTook: " << rwtimer.get_elapsed_sec() << "s" << std::endl;
+
+    /* Write labels only as ordinary optional intermediate output. */
+    if (conf.write_intermediate_results) {
+        std::vector<std::size_t> labeling(graph.num_nodes());
+        for (std::size_t i = 0; i < graph.num_nodes(); ++i) {
+            labeling[i] = graph.get_label(i);
         }
-        util::fs::rmdir(tmp_dir.c_str());
-        std::cout << "View selection labels written to "
-            << conf.out_prefix << "_labeling.vec; texture generation skipped." << std::endl;
-        return EXIT_SUCCESS;
+        vector_to_file(conf.out_prefix + "_labeling.vec", labeling);
     }
 
     tex::TextureAtlases texture_atlases;
