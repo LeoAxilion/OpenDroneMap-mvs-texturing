@@ -449,4 +449,83 @@ calculate_data_costs(mve::TriangleMesh::ConstPtr mesh, std::vector<TextureView> 
     postprocess_face_infos(settings, &face_projection_infos, data_costs);
 }
 
+void
+calculate_ray_visible_candidates(mve::TriangleMesh::ConstPtr mesh,
+    TextureViews * texture_views, Settings const & settings,
+    std::vector<std::uint8_t> * visibility_mask) {
+    std::vector<unsigned int> const & faces = mesh->get_faces();
+    std::vector<math::Vec3f> const & vertices = mesh->get_vertices();
+    mve::TriangleMesh::NormalList const & face_normals = mesh->get_face_normals();
+    std::size_t const num_faces = faces.size() / 3;
+    std::size_t const num_views = texture_views->size();
+    std::size_t const bytes_per_face_row = (num_faces + 7) / 8;
+    if (!settings.geometric_visibility_test)
+        throw std::runtime_error("Ray-visible candidate export requires geometric_visibility_test");
+    if (num_views > std::numeric_limits<std::uint16_t>::max())
+        throw std::runtime_error("Exceeded maximal number of views");
+    if (visibility_mask == nullptr || visibility_mask->size() != num_views * bytes_per_face_row)
+        throw std::runtime_error("Invalid ray visibility output buffer size");
+
+    util::WallTimer timer;
+    std::cout << "\tBuilding BVH from " << num_faces << " faces... " << std::flush;
+    BVHTree bvh_tree(faces, vertices);
+    std::cout << "done. (Took: " << timer.get_elapsed() << " ms)" << std::endl;
+
+    ProgressCounter view_counter("\tTesting face/view ray visibility", num_views);
+    #pragma omp parallel for schedule(dynamic)
+    for (std::uint16_t j = 0; j < static_cast<std::uint16_t>(num_views); ++j) {
+        TextureView * texture_view = &texture_views->at(j);
+        math::Vec3f const & view_pos = texture_view->get_pos();
+        math::Vec3f const & viewing_direction = texture_view->get_viewing_direction();
+        std::size_t const row_offset = static_cast<std::size_t>(j) * bytes_per_face_row;
+
+        for (std::size_t face_id = 0; face_id < num_faces; ++face_id) {
+            std::size_t const i = face_id * 3;
+            math::Vec3f const & v1 = vertices[faces[i]];
+            math::Vec3f const & v2 = vertices[faces[i + 1]];
+            math::Vec3f const & v3 = vertices[faces[i + 2]];
+            math::Vec3f const & face_normal = face_normals[face_id];
+            math::Vec3f const face_center = (v1 + v2 + v3) / 3.0f;
+            bool visible = true;
+            bool vertical = false;
+            if (settings.nadir_mode) {
+                vertical = std::fabs(math::Vec3f(0.0f, 0.0f, 1.0f).dot(face_normal)) < 0.5f;
+            }
+            if (!vertical) {
+                math::Vec3f const view_to_face_vec = (face_center - view_pos).normalized();
+                math::Vec3f const face_to_view_vec = (view_pos - face_center).normalized();
+                float const viewing_angle = face_to_view_vec.dot(face_normal);
+                if (viewing_angle < 0.0f || viewing_direction.dot(view_to_face_vec) < 0.0f)
+                    continue;
+                if (std::acos(viewing_angle) > MATH_DEG2RAD(75.0f))
+                    continue;
+            }
+            if (!texture_view->inside(v1, v2, v3))
+                continue;
+            if (!vertical) {
+                math::Vec3f const * samples[] = {&v1, &v2, &v3};
+                for (std::size_t k = 0; k < 3; ++k) {
+                    BVHTree::Ray ray;
+                    ray.origin = *samples[k];
+                    ray.dir = view_pos - ray.origin;
+                    ray.tmax = ray.dir.norm();
+                    ray.tmin = ray.tmax * 0.0001f;
+                    ray.dir.normalize();
+                    BVHTree::Hit hit;
+                    if (bvh_tree.intersect(ray, &hit)) {
+                        visible = false;
+                        break;
+                    }
+                }
+            }
+            if (!visible) continue;
+
+            (*visibility_mask)[row_offset + face_id / 8] |=
+                static_cast<std::uint8_t>(1u << (face_id & 7u));
+        }
+        view_counter.progress<SIMPLE>();
+        view_counter.inc();
+    }
+}
+
 TEX_NAMESPACE_END

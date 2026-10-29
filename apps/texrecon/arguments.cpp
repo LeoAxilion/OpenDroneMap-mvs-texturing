@@ -15,6 +15,7 @@
 #define SKIP_LOCAL_SEAM_LEVELING "skip_local_seam_leveling"
 #define NO_INTERMEDIATE_RESULTS "no_intermediate_results"
 #define VIEW_SELECTION_ONLY "view_selection_only"
+#define RAY_VISIBILITY_FILE "ray_visibility_file"
 #define WRITE_TIMINGS "write_timings"
 #define SKIP_HOLE_FILLING "skip_hole_filling"
 #define KEEP_UNSEEN_FACES "keep_unseen_faces"
@@ -102,6 +103,8 @@ Arguments parse_args(int argc, char **argv) {
         "Do not write out intermediate results");
     args.add_option('\0', VIEW_SELECTION_ONLY, false,
         "Write the per-face view labeling and stop before texture generation");
+    args.add_option('\0', RAY_VISIBILITY_FILE, true,
+        "Export per-face candidate visibility from TexRecon's BVH ray test and stop; output path is binary");
     args.add_option('\0', NUM_THREADS, true,
         "How many threads to use. Set 1 for determinism.");
     args.add_option('\0', DEPTH_MAP_DIR, true,
@@ -126,6 +129,7 @@ Arguments parse_args(int argc, char **argv) {
     /* Set defaults for optional arguments. */
     conf.data_cost_file = "";
     conf.labeling_file = "";
+    conf.ray_visibility_file = "";
 
     conf.write_timings = false;
     conf.write_intermediate_results = true;
@@ -181,6 +185,8 @@ Arguments parse_args(int argc, char **argv) {
                 conf.write_intermediate_results = false;
             } else if (i->opt->lopt == VIEW_SELECTION_ONLY) {
                 conf.view_selection_only = true;
+            } else if (i->opt->lopt == RAY_VISIBILITY_FILE) {
+                conf.ray_visibility_file = i->arg;
             } else if (i->opt->lopt == NUM_THREADS) {
                 conf.num_threads = std::stoi(i->arg);
             } else if (i->opt->lopt == DEPTH_MAP_DIR) {
@@ -217,6 +223,10 @@ Arguments parse_args(int argc, char **argv) {
         if (conf.settings.depth_3d_backprojection_max_error_gsd < 0.0f)
             throw std::invalid_argument("--depth_3d_backprojection_max_error_gsd must be non-negative");
     }
+    if (!conf.ray_visibility_file.empty() && !conf.settings.geometric_visibility_test)
+        throw std::invalid_argument("--ray_visibility_file requires the geometric visibility test; do not pass --skip_geometric_visibility_test");
+    if (!conf.ray_visibility_file.empty() && conf.view_selection_only)
+        throw std::invalid_argument("--ray_visibility_file cannot be combined with --view_selection_only");
 
     return conf;
 }
@@ -234,6 +244,7 @@ Arguments::to_string(){
         << "Output prefix: \t" << out_prefix << std::endl
         << "Datacost file: \t" << data_cost_file << std::endl
         << "Labeling file: \t" << labeling_file << std::endl
+        << "Ray visibility file: \t" << ray_visibility_file << std::endl
         << "Data term: \t" << choice_string<tex::DataTerm>(settings.data_term) << std::endl
         << "Smoothness term: \t" << choice_string<tex::SmoothnessTerm>(settings.smoothness_term) << std::endl
         << "Outlier removal method: \t" << choice_string<tex::OutlierRemoval>(settings.outlier_removal) << std::endl

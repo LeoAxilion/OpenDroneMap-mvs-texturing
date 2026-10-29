@@ -11,6 +11,7 @@
 #define TEX_TEXTURING_HEADER
 
 #include <vector>
+#include <cstdint>
 
 #include "mve/mesh.h"
 #include "mve/mesh_info.h"
@@ -67,6 +68,13 @@ void
 calculate_data_costs(mve::TriangleMesh::ConstPtr mesh,
     TextureViews * texture_views, Settings const & settings,
     DataCosts * data_costs);
+
+/** Export a view-major packed bitset of face/view pairs passing TexRecon's
+ * geometric candidate checks and BVH ray-visibility test. */
+void
+calculate_ray_visible_candidates(mve::TriangleMesh::ConstPtr mesh,
+    TextureViews * texture_views, Settings const & settings,
+    std::vector<std::uint8_t> * visibility_mask);
 
 void
 postprocess_face_infos(Settings const & settings,

@@ -96,6 +96,41 @@ int main(int argc, char **argv) {
 
     std::size_t const num_faces = mesh->get_faces().size() / 3;
 
+    if (!conf.ray_visibility_file.empty()) {
+        std::size_t const bytes_per_face_row = (num_faces + 7) / 8;
+        std::vector<std::uint8_t> visibility(texture_views.size() * bytes_per_face_row, 0);
+        tex::calculate_ray_visible_candidates(mesh, &texture_views, conf.settings, &visibility);
+
+        std::ofstream out(conf.ray_visibility_file.c_str(), std::ios::binary);
+        if (!out) {
+            std::cerr << "Cannot create ray visibility file: " << conf.ray_visibility_file << std::endl;
+            return EXIT_FAILURE;
+        }
+        char const magic[8] = {'T','R','V','I','S','0','0','1'};
+        std::uint64_t const faces64 = static_cast<std::uint64_t>(num_faces);
+        std::uint32_t const views32 = static_cast<std::uint32_t>(texture_views.size());
+        std::uint32_t const bytes32 = static_cast<std::uint32_t>(bytes_per_face_row);
+        out.write(magic, sizeof(magic));
+        out.write(reinterpret_cast<char const *>(&faces64), sizeof(faces64));
+        out.write(reinterpret_cast<char const *>(&views32), sizeof(views32));
+        out.write(reinterpret_cast<char const *>(&bytes32), sizeof(bytes32));
+        out.write(reinterpret_cast<char const *>(visibility.data()),
+            static_cast<std::streamsize>(visibility.size()));
+        if (!out) {
+            std::cerr << "Failed writing ray visibility file: " << conf.ray_visibility_file << std::endl;
+            return EXIT_FAILURE;
+        }
+        std::cout << "TexRecon ray-visible face/view candidates written to "
+            << conf.ray_visibility_file << std::endl;
+        timer.measure("Exporting ray-visible face/view candidates");
+
+        for (util::fs::File const & file : util::fs::Directory(tmp_dir)) {
+            util::fs::unlink(util::fs::join_path(file.path, file.name).c_str());
+        }
+        util::fs::rmdir(tmp_dir.c_str());
+        return EXIT_SUCCESS;
+    }
+
     std::cout << "Building adjacency graph: " << std::endl;
     tex::Graph graph(num_faces);
     tex::build_adjacency_graph(mesh, mesh_info, &graph);
