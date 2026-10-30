@@ -82,8 +82,11 @@ from_images_and_camera_files(std::string const & path,
         if (prefix.empty()) continue;
 
         /* Find corresponding image file. */
-        int step = 1;
-        for (std::size_t j = i + 1; j < dir.size(); j += step) {
+        /* Search toward the image first. If the camera is the final entry,
+         * search backward immediately; otherwise reverse direction when the
+         * prefix changes or the directory ends in a non-image file. */
+        int step = (i == dir.size() - 1) ? -1 : 1;
+        for (std::size_t j = i + step; j < dir.size(); j += step) {
             util::fs::File const & img_file = dir[j];
 
             /* Since the files are sorted we can break - no more files with the same prefix exist. */
@@ -95,6 +98,10 @@ from_images_and_camera_files(std::string const & path,
                 } else {
                     break;
                 }
+            }
+
+            if (j >= dir.size() - 1) {
+                if (step == 1) step = -1;
             }
 
             /* Image file (based on extension)? */
